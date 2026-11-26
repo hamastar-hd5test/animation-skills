@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>sprite-stack starter</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #F3EEE4; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100dvh; image-rendering: pixelated; touch-action: none; }
+</style>
+<canvas id="c"></canvas>
+<script src="stack.js"></script>
+<script>
+// 網址參數：?turn=度數（固定角度）、?slices=1（把切片拉開）、?spacing=數字
+const { Volume, lightSheets, pickSheet, renderStack, outline, blit, sortByGround, rgb } = SpriteStack;
+const q = new URLSearchParams(location.search);
+const BG = '#F3EEE4', LOW_W = 160, LOW_H = 200, SQUASH = 0.75;
+
+const PAL = {
+  1: ['#F6EFDD', '#E4D8BE', '#BFAE8E'], // 石牆
+  2: ['#B97A4C', '#8A5A3B', '#6B4430'], // 木頂
+  3: ['#7CA34A', '#5E8A3A', '#4A6E2E'], // 頂飾、樹冠
+  4: ['#FFD978', '#F0B45E', '#C98A32'], // 窗
+  5: ['#CFCBC2', '#B7B2A8', '#938E84'], // 石板
+  6: ['#8A5A3B', '#6B4430', '#4E3122'], // 樹幹、門
+};
+
+function tower() {
+  const v = new Volume(34, 34, 44);
+  v.cylinder(17, 17, 0, 2, 15, 15, 5);
+  v.cylinder(17, 17, 2, 28, 10, 7, 1);
+  v.box(15, 25, 2, 19, 28, 9, 6);
+  v.box(16, 23, 15, 18, 27, 18, 4);
+  v.cylinder(17, 17, 28, 30, 9, 9, 2);
+  v.cylinder(17, 17, 30, 41, 9, 0.5, 2);
+  v.sphere(17, 17, 42, 1.6, 3);
+  return v;
+}
+function tree() {
+  const v = new Volume(16, 16, 20);
+  v.cylinder(8, 8, 0, 8, 1.6, 1.6, 6);
+  v.sphere(8, 8, 12, 6.5, 3);
+  return v;
+}
+
+const models = { tower: lightSheets(tower(), PAL), tree: lightSheets(tree(), PAL) };
+const scene = [
+  { id: 'tower', model: 'tower', x: 0, y: 0 },
+  { id: 'tree-a', model: 'tree', x: -34, y: 10 },
+  { id: 'tree-b', model: 'tree', x: 30, y: -14 },
+];
+
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const low = document.createElement('canvas');
+low.width = LOW_W; low.height = LOW_H;
+const lctx = low.getContext('2d');
+const bg = rgb(BG);
+
+let turn = q.has('turn') ? (Number(q.get('turn')) * Math.PI) / 180 : 0;
+let dragging = false, lastX = 0;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; });
+addEventListener('pointerup', () => { dragging = false; });
+addEventListener('pointermove', (e) => { if (dragging) { turn += (e.clientX - lastX) * 0.01; lastX = e.clientX; } });
+
+function frame() {
+  if (!q.has('turn') && !dragging) turn += 0.006;
+  const spacing = q.has('spacing') ? Number(q.get('spacing')) : q.has('slices') ? 3 : 1;
+  const buf = { w: LOW_W, h: LOW_H, data: new Uint8ClampedArray(LOW_W * LOW_H * 4) };
+  for (let i = 0; i < buf.data.length; i += 4) { buf.data[i] = bg[0]; buf.data[i + 1] = bg[1]; buf.data[i + 2] = bg[2]; buf.data[i + 3] = 255; }
+
+  // 鏡頭轉動：物件的位置跟著繞中心轉，切片也加同一個角度
+  const c = Math.cos(turn), s = Math.sin(turn);
+  const placed = scene.map((o) => ({
+    ...o,
+    x: Math.round(LOW_W / 2 + o.x * c - o.y * s),
+    y: Math.round(LOW_H * 0.72 + (o.x * s + o.y * c) * SQUASH),
+  }));
+  for (const o of sortByGround(placed)) {
+    const img = outline(renderStack(pickSheet(models[o.model], turn), turn, SQUASH, spacing));
+    blit(buf, img, o.x, o.y);
+  }
+  lctx.putImageData(new ImageData(buf.data, LOW_W, LOW_H), 0, 0);
+
+  // 整數倍放大，剩下的邊用底色填
+  const dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(innerWidth * dpr); canvas.height = Math.round(innerHeight * dpr);
+  const k = Math.max(1, Math.floor(Math.min(canvas.width / LOW_W, canvas.height / LOW_H)));
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(low, Math.floor((canvas.width - LOW_W * k) / 2), Math.floor((canvas.height - LOW_H * k) / 2), LOW_W * k, LOW_H * k);
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
